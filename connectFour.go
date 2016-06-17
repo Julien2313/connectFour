@@ -19,6 +19,7 @@ const NBRHIDDENNEURONSPERINPUT  = 4
 const LAMBDA                    = 0
 
 type CONNECTFOUR struct{
+    moves[NBRCELLS] int
     board[NBRCELLS] int
     nbrDiscs[NBRROWS] int
     player int
@@ -143,12 +144,11 @@ func min(a, b int) int{
 
 func nextPlayer(pConnectFour *CONNECTFOUR){
     pConnectFour.player *= -1
-    pConnectFour.turn++
 }
 
 func initBoard(pConnectFour *CONNECTFOUR){
     pConnectFour.player = 1
-    pConnectFour.turn = 1
+    pConnectFour.turn = 0
 }
 
 func canAddDisc(pConnectFour *CONNECTFOUR, numRow int) bool{
@@ -161,6 +161,8 @@ func canAddDisc(pConnectFour *CONNECTFOUR, numRow int) bool{
 func addDisc(pConnectFour *CONNECTFOUR, numRow int){
     pConnectFour.board[pConnectFour.nbrDiscs[numRow] * NBRROWS + numRow] = pConnectFour.player
     pConnectFour.nbrDiscs[numRow]++
+    pConnectFour.moves[pConnectFour.turn] = numRow
+    pConnectFour.turn++
 }
 
 func checkWinLine(pConnectFour *CONNECTFOUR, numLine int) bool{
@@ -307,8 +309,8 @@ func playAGameHvB(pNeuralNetwork *NEURALNETWORK, humanPlayer int){
     var row int
     
     initBoard(pConnectFour)
-    printBoard(pConnectFour)
     for {
+        printBoard(pConnectFour)
         if pConnectFour.player == humanPlayer{
             for {
                 fmt.Scanf("%d", &row)
@@ -338,8 +340,8 @@ func playAGameBvB(pNeuralNetwork1 *NEURALNETWORK, pNeuralNetwork2 *NEURALNETWORK
     var row int
     
     initBoard(pConnectFour)
-    //~ printBoard(pConnectFour)
     for pConnectFour.turn <= NBRCELLS {
+        //~ printBoard(pConnectFour)
         if pConnectFour.player == pNeuralNetwork1.player{
             getOutput(pNeuralNetwork1, pConnectFour)
             row = chooseMove(pNeuralNetwork1, pConnectFour)
@@ -348,7 +350,6 @@ func playAGameBvB(pNeuralNetwork1 *NEURALNETWORK, pNeuralNetwork2 *NEURALNETWORK
             row = chooseMove(pNeuralNetwork2, pConnectFour)
         }
         makeMove(pConnectFour, row)
-        //~ printBoard(pConnectFour)
         if isWin(pConnectFour, row){
             //~ fmt.Println("Win")
             if pConnectFour.player == pNeuralNetwork1.player{
@@ -373,12 +374,11 @@ func playAGameBvHim(pNeuralNetwork *NEURALNETWORK){
     var row int
     
     initBoard(pConnectFour)
-    //~ printBoard(pConnectFour)
-    for pConnectFour.turn <= NBRCELLS {
+    for pConnectFour.turn < NBRCELLS {
+        //~ printBoard(pConnectFour)
         getOutput(pNeuralNetwork, pConnectFour)
         row = chooseMove(pNeuralNetwork, pConnectFour)
         makeMove(pConnectFour, row)
-        //~ printBoard(pConnectFour)
         if isWin(pConnectFour, row){
             //~ fmt.Println("Win")
             pNeuralNetwork.win++
@@ -387,7 +387,7 @@ func playAGameBvHim(pNeuralNetwork *NEURALNETWORK){
         nextPlayer(pConnectFour)
         pNeuralNetwork.player *= -1
     }
-    if pConnectFour.turn > NBRCELLS {
+    if pConnectFour.turn >= NBRCELLS {
         printBoard(pConnectFour)
     }
 }
@@ -416,6 +416,7 @@ func main(){
     start := time.Now()
     for cpt := 0;cpt < 10000; cpt++ {
         //~ playAGameBvB(pNeuralNetwork1, pNeuralNetwork2)
+        //~ fmt.Println(cpt)
         playAGameBvHim(pNeuralNetwork1)
     }
     elapsed := time.Since(start)
