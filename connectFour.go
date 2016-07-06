@@ -1,22 +1,28 @@
 package main
 
-import "fmt"
-//~ import (
-        //~ "fmt/Printf" 
-        //~ Printf "printf"
-       //~ )
-//~ import "fmt/Printf"
-import "math"
-import "math/rand"
-import "time"
+import (
+    "fmt"
+    "math"
+    "math/rand"
+    "time"
+    "sync"
+)
 
-const CONNECTX                  = 4 //nbr of isc to connect to win
-const NBRROWS                   = 7
-const NBRLINES                  = 6
-const NBRCELLS                  = NBRROWS * NBRLINES
-const NBRVALUEINCELL            = 3 // 1, -1 or 0
-const NBRHIDDENNEURONSPERINPUT  = 4
-const LAMBDA                    = 0
+var wg sync.WaitGroup
+
+const CONNECTX                  =   4 //nbr of disc to connect to win
+const NBRROWS                   =   7
+const NBRVALINCELL              =   3 // -1; 0; 1
+const NBRLINES                  =   6
+const NBRCELLS                  =   NBRROWS * NBRLINES
+const NBRHIDDENLAYERS           =   20
+const NBRTOTALLAYERS            =   NBRHIDDENLAYERS + 2 // +2 because of input and output
+const NBRTOTALWEIGHTS           =   NBRTOTALLAYERS - 1
+const NBRNEURONSPERHIDDENLAYER  =   NBRCELLS*5
+const INPUT                     =   0
+const OUPUT                     =   NBRTOTALLAYERS - 1
+const LAMBDA                    =   0
+var TABNBRNEURONSPERLAYER []int =   initNbrNeuronsPerLayer()
 
 type CONNECTFOUR struct{
     moves[NBRCELLS] int
@@ -24,108 +30,120 @@ type CONNECTFOUR struct{
     nbrDiscs[NBRROWS] int
     player int
     turn int
+    wonBy int
 }
 
 type NEURALNETWORK struct{
-    input[NBRCELLS][NBRVALUEINCELL] float32
-    coefInputToHiddenNeurons[NBRCELLS][NBRVALUEINCELL][NBRHIDDENNEURONSPERINPUT] float32
-    valueHiddenNeurons[NBRCELLS][NBRHIDDENNEURONSPERINPUT] float32
-    coefHiddenNeuronsToOutput[NBRCELLS][NBRHIDDENNEURONSPERINPUT][NBRROWS] float32
-    output[NBRROWS] float32
+    layers  [][]float64
+    weights [][]float64
+
     player int
     win int
 }
 
-func initNeuralNetwork(pNeuralNetwork *NEURALNETWORK, player int){
-    var cell, numValueInCell, numHiddenNeurons, row int
-    pNeuralNetwork.player = player
-    pNeuralNetwork.win = 0
+func initNbrNeuronsPerLayer() []int {
+    tab   := make([]int, NBRTOTALLAYERS)
+    tab[INPUT] = NBRCELLS * NBRVALINCELL
+    for i := 1; i < NBRTOTALLAYERS - 1; i++ {
+        tab[i] = NBRNEURONSPERHIDDENLAYER
+    }
+    tab[OUPUT] = NBRROWS
 
-    s1 := rand.NewSource(time.Now().UnixNano())
-    r1 := rand.New(s1)
+    return tab
+}
+
+func randFloat() float64 {
+    return rand.Float64()
+}
+
+func initLayer(size int) []float64 {
+    layer   := make([]float64, size)
     
-    var maxValueFloat32 float32 = math.MaxFloat32 / 10000000000000000000000000000000000000 / NBRCELLS
-    
-    for cell = 0; cell < NBRCELLS; cell++ {
-        for numValueInCell = 0; numValueInCell < NBRVALUEINCELL; numValueInCell++ {
-            for numHiddenNeurons = 0; numHiddenNeurons < NBRHIDDENNEURONSPERINPUT; numHiddenNeurons++ {
-                pNeuralNetwork.coefInputToHiddenNeurons[cell][numValueInCell][numHiddenNeurons] = r1.Float32() * maxValueFloat32
-            }
-        }
+    for i := 0; i < size; i++ {
+        layer[i] = 0
     }
 
-    for cell = 0; cell < NBRCELLS; cell++ {
-        for numHiddenNeurons = 0; numHiddenNeurons < NBRHIDDENNEURONSPERINPUT; numHiddenNeurons++ {
-            for row = 0; row < NBRROWS; row++ {
-                pNeuralNetwork.coefHiddenNeuronsToOutput[cell][numHiddenNeurons][row] = r1.Float32() * maxValueFloat32
-            }
-        }
+    return layer
+}
+
+func initLayers() [][]float64 {    
+    layers   := make([][]float64, NBRTOTALLAYERS)
+    
+    for numLayer := 0; numLayer < NBRTOTALLAYERS; numLayer++ { // 1 to MAX -1 because input and output don't have the same size compared to the others layers
+        layers[numLayer] = initLayer(TABNBRNEURONSPERLAYER[numLayer]) 
+    }
+
+    return layers
+}
+
+func initWeight(size int) []float64 {
+    weight   := make([]float64, size)
+    
+    for i := 0; i < size; i++ {
+        weight[i] = randFloat()  * 2 - 1
+    }
+    
+    return weight
+}
+
+func initWeights() [][]float64 {    
+    weights   := make([][]float64, NBRTOTALWEIGHTS)
+    
+    for numWeight := 0; numWeight < NBRTOTALWEIGHTS; numWeight++ {
+        weights[numWeight] = initWeight(TABNBRNEURONSPERLAYER[numWeight] * TABNBRNEURONSPERLAYER[numWeight + 1]) 
+    }
+    
+    return weights
+}
+
+func initNeuralNetwork(pNeuralNetwork *NEURALNETWORK, player int) {
+    pNeuralNetwork.win      =   0
+    pNeuralNetwork.player   =   player
+    
+    pNeuralNetwork.layers   =   initLayers()
+    pNeuralNetwork.weights  =   initWeights()
+}
+
+func calculValueNeurons(pNeuralNetwork *NEURALNETWORK, numLayer int, numNeuron int){
+    pNeuralNetwork.layers[numLayer][numNeuron] = 0
+    for numWeight := 0; numWeight < TABNBRNEURONSPERLAYER[numLayer - 1]; numWeight++ {
+        pNeuralNetwork.layers[numLayer][numNeuron] += pNeuralNetwork.weights[numLayer - 1][TABNBRNEURONSPERLAYER[numLayer - 1] * numNeuron + numWeight] * pNeuralNetwork.layers[numLayer - 1][numWeight]
+    }
+    pNeuralNetwork.layers[numLayer][numNeuron] = 1 / (1 + math.Exp(pNeuralNetwork.layers[numLayer][numNeuron] * -1))
+    if pNeuralNetwork.layers[numLayer][numNeuron] > 0.5 {
+        pNeuralNetwork.layers[numLayer][numNeuron] = 1
+    } else {
+        pNeuralNetwork.layers[numLayer][numNeuron] = 0
+    }
+
+}
+
+func calculValueLayers(pNeuralNetwork *NEURALNETWORK, numLayer int) {
+    for numNeuron := 0; numNeuron < TABNBRNEURONSPERLAYER[numLayer]; numNeuron++ {
+        calculValueNeurons(pNeuralNetwork, numLayer, numNeuron)
     }
 }
 
-func initInput(pNeuralNetwork *NEURALNETWORK, pConnectFour *CONNECTFOUR){
-    
-    for cell := 0; cell < NBRCELLS; cell++ {
-        if pNeuralNetwork.player == pConnectFour.board[cell] {
-            pNeuralNetwork.input[cell][0] = 1
-            pNeuralNetwork.input[cell][1] = 0
-            pNeuralNetwork.input[cell][2] = 0
-        }else if pConnectFour.board[cell] != 0 {
-            pNeuralNetwork.input[cell][0] = 0
-            pNeuralNetwork.input[cell][1] = 1
-            pNeuralNetwork.input[cell][2] = 0
+func calculOutputNeuralNetwork(pNeuralNetwork *NEURALNETWORK, pConnectFour *CONNECTFOUR) {
+    for numCell := 0; numCell < NBRCELLS * NBRVALINCELL; numCell += NBRVALINCELL {
+        if pNeuralNetwork.player == pConnectFour.board[numCell / NBRVALINCELL] {
+            pNeuralNetwork.layers[INPUT][numCell    ] = 1
+            pNeuralNetwork.layers[INPUT][numCell + 1] = 0
+            pNeuralNetwork.layers[INPUT][numCell + 2] = 0
+        }else if pConnectFour.board[numCell / NBRVALINCELL] != 0 {
+            pNeuralNetwork.layers[INPUT][numCell    ] = 0
+            pNeuralNetwork.layers[INPUT][numCell + 1] = 1
+            pNeuralNetwork.layers[INPUT][numCell + 2] = 0
         } else {
-            pNeuralNetwork.input[cell][0] = 0
-            pNeuralNetwork.input[cell][1] = 0
-            pNeuralNetwork.input[cell][2] = 1
+            pNeuralNetwork.layers[INPUT][numCell    ] = 0
+            pNeuralNetwork.layers[INPUT][numCell + 1] = 0
+            pNeuralNetwork.layers[INPUT][numCell + 2] = 1
         }
+        //~ pNeuralNetwork.Layer[INPUT][numCell] = pConnectFour.board[numCell]
     }
-}
-
-func calculValueHiddenNeurons(pNeuralNetwork *NEURALNETWORK) {
-    var cell, cell2, numValue, numHiddenNeurons int
-    var coef, value float32
-    for cell = 0; cell < NBRCELLS; cell++ {
-        for numHiddenNeurons = 0; numHiddenNeurons < NBRHIDDENNEURONSPERINPUT; numHiddenNeurons++ {
-            pNeuralNetwork.valueHiddenNeurons[cell][numHiddenNeurons] = 0
-            for cell2 = 0; cell2 < NBRCELLS; cell2++ {
-                for numValue = 0; numValue < NBRVALUEINCELL; numValue++ {
-                    coef = pNeuralNetwork.coefInputToHiddenNeurons[cell2][numValue][numHiddenNeurons]
-                    value = pNeuralNetwork.input[cell2][numValue]
-                    pNeuralNetwork.valueHiddenNeurons[cell][numHiddenNeurons] += coef * value
-                }
-            }
-            //~ fmt.Printf("%f\n", pNeuralNetwork.valueHiddenNeurons[cell][numHiddenNeurons])
-        }
+    for numLayer := 1; numLayer < NBRTOTALLAYERS; numLayer++ {
+        calculValueLayers(pNeuralNetwork, numLayer)
     }
-}
-
-func calculValueOuput(pNeuralNetwork *NEURALNETWORK, pConnectFour *CONNECTFOUR) {
-    var row, cell, numHiddenNeurons int
-    var coef, value float32
-    for row = 0; row < NBRROWS; row++ {
-        pNeuralNetwork.output[row] = 0
-        if pConnectFour.nbrDiscs[row] >= NBRLINES {
-            continue
-        }
-        for cell = 0; cell < NBRCELLS; cell++ {
-            for numHiddenNeurons = 0; numHiddenNeurons < NBRHIDDENNEURONSPERINPUT; numHiddenNeurons++ {
-                coef = pNeuralNetwork.coefHiddenNeuronsToOutput[cell][numHiddenNeurons][row]
-                value = pNeuralNetwork.valueHiddenNeurons[cell][numHiddenNeurons]
-                pNeuralNetwork.output[row] += value * coef
-            }
-        }
-        //~ fmt.Printf("%f\n", pNeuralNetwork.output[row])
-    }
-}
-
-func getOutput(pNeuralNetwork *NEURALNETWORK, pConnectFour *CONNECTFOUR){
-    initInput(pNeuralNetwork, pConnectFour)
-    calculValueHiddenNeurons(pNeuralNetwork)
-    calculValueOuput(pNeuralNetwork, pConnectFour)
-    //~ fmt.Println(pNeuralNetwork.output)
-    //~ fmt.Printf("%f, %f\n", pNeuralNetwork.output[0], pNeuralNetwork.output[1])
-
 }
 
 func max(a, b int) int{
@@ -149,6 +167,9 @@ func nextPlayer(pConnectFour *CONNECTFOUR){
 func initBoard(pConnectFour *CONNECTFOUR){
     pConnectFour.player = 1
     pConnectFour.turn = 0
+    for x := 0; x < NBRCELLS; x++ {
+        pConnectFour.moves[x] = -1
+    }
 }
 
 func canAddDisc(pConnectFour *CONNECTFOUR, numRow int) bool{
@@ -179,6 +200,7 @@ func checkWinLine(pConnectFour *CONNECTFOUR, numLine int) bool{
     }
     return false
 }
+
 func checkWinRow(pConnectFour *CONNECTFOUR, numRow int) bool{
     var combo int = 0
     for y := 0; y < NBRLINES; y++ {
@@ -193,6 +215,7 @@ func checkWinRow(pConnectFour *CONNECTFOUR, numRow int) bool{
     }
     return false
 }
+
 func checkWinDiagonals(pConnectFour *CONNECTFOUR, numRow int) bool{
     var combo  int = 0
     var height int = pConnectFour.nbrDiscs[numRow] - 1
@@ -231,19 +254,12 @@ func checkWinDiagonals(pConnectFour *CONNECTFOUR, numRow int) bool{
 }
 
 
-func isWin(pConnectFour *CONNECTFOUR, numRow int) bool{
-    if checkWinRow(pConnectFour, numRow) {
-        return true
-    }
 
-    if checkWinLine(pConnectFour, pConnectFour.nbrDiscs[numRow] - 1) {
+func isWin(pConnectFour *CONNECTFOUR, numRow int) bool{
+    if checkWinRow(pConnectFour, numRow) || checkWinDiagonals(pConnectFour, numRow) || checkWinLine(pConnectFour, pConnectFour.nbrDiscs[numRow] - 1){
+        pConnectFour.wonBy = pConnectFour.player
         return true
     }
-    
-    if checkWinDiagonals(pConnectFour, numRow) {
-        return true
-    }
-        
     return false
 }
 
@@ -276,30 +292,42 @@ func printBoard(pConnectFour *CONNECTFOUR){
 }
 
 func chooseMove(pNeuralNetwork *NEURALNETWORK, pConnectFour *CONNECTFOUR) int {
-    var total float32 = 0
-    var subTotal float32 = 0
-    for row := 0; row < NBRROWS; row++ {
-        if pConnectFour.nbrDiscs[row] >= NBRLINES {
-            continue
-        }
-        pNeuralNetwork.output[row] += LAMBDA
-        total += pNeuralNetwork.output[row]
+    var total float64 = 0
+    var subTotal float64 = 0
+    for layer := 0; layer < NBRTOTALLAYERS; layer++ {
+        fmt.Println(pNeuralNetwork.layers[layer])
     }
-    seed := rand.NewSource(time.Now().UnixNano())
-    rand := rand.New(seed)
-    valueRand := rand.Float32() * total
     for row := 0; row < NBRROWS; row++ {
         if pConnectFour.nbrDiscs[row] >= NBRLINES {
             continue
         }
-        subTotal += pNeuralNetwork.output[row]
-        if subTotal > valueRand {
+        pNeuralNetwork.layers[OUPUT][row] += LAMBDA
+        total += pNeuralNetwork.layers[OUPUT][row]
+    }
+    valueRand := randFloat() * total
+    for row := 0; row < NBRROWS; row++ {
+        if pConnectFour.nbrDiscs[row] >= NBRLINES {
+            continue
+        }
+        subTotal += pNeuralNetwork.layers[OUPUT][row]
+        if subTotal >= valueRand {
             return row
         }
     }
     
-    return NBRROWS - 1
+    fmt.Println()
+    fmt.Println()
+    fmt.Println()
+    fmt.Println(pNeuralNetwork.player)
+    fmt.Println(pNeuralNetwork.layers[INPUT])
+    fmt.Println(pNeuralNetwork.layers[OUPUT])
+    fmt.Println(total)
+    fmt.Println(valueRand)
+    fmt.Println(subTotal)
+    printBoard(pConnectFour)
+    return NBRROWS
 }
+
 
 func playAGameHvB(pNeuralNetwork *NEURALNETWORK, humanPlayer int){
     
@@ -309,7 +337,7 @@ func playAGameHvB(pNeuralNetwork *NEURALNETWORK, humanPlayer int){
     var row int
     
     initBoard(pConnectFour)
-    for {
+    for pConnectFour.turn <= NBRCELLS {
         printBoard(pConnectFour)
         if pConnectFour.player == humanPlayer{
             for {
@@ -319,12 +347,12 @@ func playAGameHvB(pNeuralNetwork *NEURALNETWORK, humanPlayer int){
                 }
             }
         } else {
-            getOutput(pNeuralNetwork, pConnectFour)
+            calculOutputNeuralNetwork(pNeuralNetwork, pConnectFour)
             row = chooseMove(pNeuralNetwork, pConnectFour)
             makeMove(pConnectFour, row)
         }
-        printBoard(pConnectFour)
         if isWin(pConnectFour, row){
+            printBoard(pConnectFour)
             fmt.Println("Win")
             break
         }
@@ -340,14 +368,14 @@ func playAGameBvB(pNeuralNetwork1 *NEURALNETWORK, pNeuralNetwork2 *NEURALNETWORK
     var row int
     
     initBoard(pConnectFour)
-    for pConnectFour.turn <= NBRCELLS {
+    for pConnectFour.turn < NBRCELLS {
         //~ printBoard(pConnectFour)
         if pConnectFour.player == pNeuralNetwork1.player{
-            getOutput(pNeuralNetwork1, pConnectFour)
-            row = chooseMove(pNeuralNetwork1, pConnectFour)
+            //~ calculOutput(pNeuralNetwork1, pConnectFour)
+            //~ row = chooseMove(pNeuralNetwork1, pConnectFour)
         } else {
-            getOutput(pNeuralNetwork2, pConnectFour)
-            row = chooseMove(pNeuralNetwork2, pConnectFour)
+            //~ calculOutput(pNeuralNetwork2, pConnectFour)
+            //~ row = chooseMove(pNeuralNetwork2, pConnectFour)
         }
         makeMove(pConnectFour, row)
         if isWin(pConnectFour, row){
@@ -376,51 +404,50 @@ func playAGameBvHim(pNeuralNetwork *NEURALNETWORK){
     initBoard(pConnectFour)
     for pConnectFour.turn < NBRCELLS {
         //~ printBoard(pConnectFour)
-        getOutput(pNeuralNetwork, pConnectFour)
-        row = chooseMove(pNeuralNetwork, pConnectFour)
+        //~ calculOutput(pNeuralNetwork, pConnectFour)
+        //~ row = chooseMove(pNeuralNetwork, pConnectFour)
         makeMove(pConnectFour, row)
         if isWin(pConnectFour, row){
             //~ fmt.Println("Win")
-            pNeuralNetwork.win++
+            //~ fmt.Println(pConnectFour.wonBy)
             break
         }
         nextPlayer(pConnectFour)
         pNeuralNetwork.player *= -1
     }
     if pConnectFour.turn >= NBRCELLS {
-        printBoard(pConnectFour)
+        //~ printBoard(pConnectFour)
+    } else {
+        //~ trainNeuralNetworkBvHim(pNeuralNetwork, pConnectFour)
     }
+    //~ fmt.Println(pConnectFour.moves)
 }
 
 
 func main(){
-    //~ humanPlayer := 1
-    //~ var pNeuralNetwork *NEURALNETWORK
-    //~ var neuralNetwork NEURALNETWORK
-    //~ pNeuralNetwork = &neuralNetwork
-    //~ initNeuralNetwork(pNeuralNetwork, humanPlayer * -1)
-    //~ playAGameHvB(pNeuralNetwork, humanPlayer)
+    rand.Seed(time.Now().UTC().UnixNano())
     
     var pNeuralNetwork1 *NEURALNETWORK
     var neuralNetwork1 NEURALNETWORK
     pNeuralNetwork1 = &neuralNetwork1
-
+    
     var pNeuralNetwork2 *NEURALNETWORK
     var neuralNetwork2 NEURALNETWORK
     pNeuralNetwork2 = &neuralNetwork2
     
     initNeuralNetwork(pNeuralNetwork1, 1)
     initNeuralNetwork(pNeuralNetwork2, -1)
-    
-    
+    //~ calculOutputNeuralNetwork(pNeuralNetwork1)
+    //~ fmt.Println(neuralNetwork1.layers[OUPUT])
     start := time.Now()
-    for cpt := 0;cpt < 10000; cpt++ {
+    for cpt := 0;cpt < 1; cpt++ {
+        playAGameHvB(pNeuralNetwork1, -1)
         //~ playAGameBvB(pNeuralNetwork1, pNeuralNetwork2)
         //~ fmt.Println(cpt)
-        playAGameBvHim(pNeuralNetwork1)
+        //~ playAGameBvHim(pNeuralNetwork1)
+        //~ fmt.Println(cpt)
     }
     elapsed := time.Since(start)
     fmt.Printf("%s\n", elapsed)
-    fmt.Printf("%d\n", pNeuralNetwork1.win)
-    fmt.Printf("%d\n", pNeuralNetwork2.win)
+    
 }
