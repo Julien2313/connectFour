@@ -107,7 +107,9 @@ func initNeuralNetwork(pNeuralNetwork *NEURALNETWORK, player int) {
 func calculValueNeurons(pNeuralNetwork *NEURALNETWORK, numLayer int, numNeuron int){
     pNeuralNetwork.layers[numLayer][numNeuron] = 0
     for numWeight := 0; numWeight < TABNBRNEURONSPERLAYER[numLayer - 1]; numWeight++ {
-        pNeuralNetwork.layers[numLayer][numNeuron] += pNeuralNetwork.weights[numLayer - 1][TABNBRNEURONSPERLAYER[numLayer - 1] * numNeuron + numWeight] * pNeuralNetwork.layers[numLayer - 1][numWeight]
+        if numNeuron + numWeight] * pNeuralNetwork.layers[numLayer - 1][numWeight] {
+            pNeuralNetwork.layers[numLayer][numNeuron] += pNeuralNetwork.weights[numLayer - 1][TABNBRNEURONSPERLAYER[numLayer - 1] * numNeuron + numWeight] // * pNeuralNetwork.layers[numLayer - 1][numWeight]
+        }
     }
     pNeuralNetwork.layers[numLayer][numNeuron] = 1 / (1 + math.Exp(pNeuralNetwork.layers[numLayer][numNeuron] * -1))
     if pNeuralNetwork.layers[numLayer][numNeuron] > 0.5 {
@@ -253,8 +255,6 @@ func checkWinDiagonals(pConnectFour *CONNECTFOUR, numRow int) bool{
     return false
 }
 
-
-
 func isWin(pConnectFour *CONNECTFOUR, numRow int) bool{
     if checkWinRow(pConnectFour, numRow) || checkWinDiagonals(pConnectFour, numRow) || checkWinLine(pConnectFour, pConnectFour.nbrDiscs[numRow] - 1){
         pConnectFour.wonBy = pConnectFour.player
@@ -327,7 +327,6 @@ func chooseMove(pNeuralNetwork *NEURALNETWORK, pConnectFour *CONNECTFOUR) int {
     printBoard(pConnectFour)
     return NBRROWS
 }
-
 
 func playAGameHvB(pNeuralNetwork *NEURALNETWORK, humanPlayer int){
     
@@ -422,7 +421,6 @@ func playAGameBvHim(pNeuralNetwork *NEURALNETWORK){
     }
     //~ fmt.Println(pConnectFour.moves)
 }
-
 
 func main(){
     rand.Seed(time.Now().UTC().UnixNano())
